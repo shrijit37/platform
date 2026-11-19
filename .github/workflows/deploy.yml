@@ -10,9 +10,14 @@ on:
         required: true
         type: string
       app:
-        description: "Logical app name (used for GHCR image + concurrency group)"
+        description: "Logical app name (used for concurrency group)"
         required: true
         type: string
+      image-name:
+        description: "GHCR image name. Defaults to app. Set explicitly when it differs from the repo name (e.g. tdrive, rehearse.io)."
+        required: false
+        type: string
+        default: ""
       working-directory:
         description: "Directory to install/test/build from"
         required: false
@@ -33,6 +38,11 @@ on:
         required: false
         type: string
         default: "/health"
+      health-status:
+        description: "Expected value of the health response's status field"
+        required: false
+        type: string
+        default: "ok"
       vercel-project:
         description: "Vercel project name (only used when VERCEL_TOKEN is set)"
         required: false
@@ -241,7 +251,7 @@ jobs:
       run:
         working-directory: ${{ inputs.working-directory }}
     env:
-      IMAGE: ghcr.io/${{ github.repository_owner }}/${{ inputs.app }}
+      IMAGE: ghcr.io/${{ github.repository_owner }}/${{ inputs.image-name != '' && inputs.image-name || inputs.app }}
       COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
       COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
       DOTENV_PRIVATE_KEY_PRODUCTION: ${{ secrets.DOTENV_PRIVATE_KEY_PRODUCTION }}
@@ -299,7 +309,7 @@ jobs:
             echo "attempt $i: $BODY"
             STATUS=$(printf '%s' "$BODY" | jq -r '.status // empty' 2>/dev/null || true)
             VERSION=$(printf '%s' "$BODY" | jq -r '.version // empty' 2>/dev/null || true)
-            if [ "$STATUS" = "ok" ] && [ "$VERSION" = "${{ github.sha }}" ]; then
+            if [ "$STATUS" = "${{ inputs.health-status }}" ] && [ "$VERSION" = "${{ github.sha }}" ]; then
               echo "Deployment ${{ github.sha }} is healthy."
               exit 0
             fi
