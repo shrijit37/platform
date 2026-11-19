@@ -259,7 +259,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Decrypt dotenv (when key present)
         if: env.DOTENV_PRIVATE_KEY_PRODUCTION != ''
-        run: npx --yes @dotenvx/dotenvx decrypt -f .env.production -o .env
+        run: npx --yes @dotenvx/dotenvx decrypt -f .env.production
       - name: Build and push (multi-arch, sha + latest)
         uses: docker/build-push-action@v6
         with:
