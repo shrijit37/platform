@@ -13,42 +13,42 @@ on:
         description: "Logical app name (used for concurrency group)"
         required: true
         type: string
-      image-name:
+      image_name:
         description: "GHCR image name. Defaults to app. Set explicitly when it differs from the repo name (e.g. tdrive, rehearse.io)."
         required: false
         type: string
         default: ""
-      working-directory:
+      working_directory:
         description: "Directory to install/test/build from"
         required: false
         type: string
         default: "."
-      build-command:
+      build_command:
         description: "Optional explicit build command (verify job only)"
         required: false
         type: string
         default: ""
-      test-command:
+      test_command:
         description: "Command that runs the test suite"
         required: false
         type: string
         default: "make test"
-      health-path:
+      health_path:
         description: "Path appended to vars.APP_URL for health probes"
         required: false
         type: string
         default: "/health"
-      health-status:
+      health_status:
         description: "Expected value of the health response's status field"
         required: false
         type: string
         default: "ok"
-      vercel-project:
+      vercel_project:
         description: "Vercel project name (only used when VERCEL_TOKEN is set)"
         required: false
         type: string
         default: ""
-      cf-worker-name:
+      cf_worker_name:
         description: "Cloudflare Worker name (overrides wrangler config)"
         required: false
         type: string
@@ -106,7 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ${{ inputs.working-directory }}
+        working_directory: ${{ inputs.working_directory }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -126,10 +126,10 @@ jobs:
             echo "No JS lockfile found; skipping dependency install."
           fi
       - name: Build (when requested)
-        if: inputs.build-command != ''
-        run: ${{ inputs.build-command }}
+        if: inputs.build_command != ''
+        run: ${{ inputs.build_command }}
       - name: Test
-        run: ${{ inputs.test-command }}
+        run: ${{ inputs.test_command }}
       - name: Lint
         run: |
           if [ -f package.json ] && node -e 'process.exit(require("./package.json").scripts?.lint ? 0 : 1)' 2>/dev/null; then
@@ -164,7 +164,7 @@ jobs:
           echo "value=$REF" >> "$GITHUB_OUTPUT"
       - name: Detect migrations
         id: detect
-        working-directory: ${{ inputs.working-directory }}
+        working_directory: ${{ inputs.working_directory }}
         run: |
           if [ -d supabase/migrations ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
@@ -174,7 +174,7 @@ jobs:
           fi
       - name: Push migrations via pooler
         if: steps.detect.outputs.present == 'true'
-        working-directory: ${{ inputs.working-directory }}
+        working_directory: ${{ inputs.working_directory }}
         run: |
           set -euo pipefail
           : "${SUPABASE_DB_PASSWORD:?SUPABASE_DB_PASSWORD is required}"
@@ -193,7 +193,7 @@ jobs:
     needs: [verify]
     defaults:
       run:
-        working-directory: ${{ inputs.working-directory }}
+        working_directory: ${{ inputs.working_directory }}
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
@@ -205,8 +205,8 @@ jobs:
         run: |
           npm i -g vercel@latest
           PROJECT_ARG=""
-          if [ -n "${{ inputs.vercel-project }}" ]; then
-            PROJECT_ARG="--project=${{ inputs.vercel-project }}"
+          if [ -n "${{ inputs.vercel_project }}" ]; then
+            PROJECT_ARG="--project=${{ inputs.vercel_project }}"
           fi
           vercel pull --yes --environment=production --token "$VERCEL_TOKEN" $PROJECT_ARG
           vercel build --prod --token "$VERCEL_TOKEN"
@@ -238,8 +238,8 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: ${{ inputs.working-directory }}
-          command: deploy${{ inputs.cf-worker-name != '' && format(' --name {0}', inputs.cf-worker-name) || '' }}
+          workingDirectory: ${{ inputs.working_directory }}
+          command: deploy${{ inputs.cf_worker_name != '' && format(' --name {0}', inputs.cf_worker_name) || '' }}
 
   # -------------------------------------------------------- deploy-container
   deploy-container:
@@ -249,14 +249,14 @@ jobs:
     needs: [verify, migrate-supabase]
     defaults:
       run:
-        working-directory: ${{ inputs.working-directory }}
+        working_directory: ${{ inputs.working_directory }}
     env:
-      IMAGE: ghcr.io/${{ github.repository_owner }}/${{ inputs.image-name != '' && inputs.image-name || inputs.app }}
+      IMAGE: ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name != '' && inputs.image_name || inputs.app }}
       COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
       COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
       DOTENV_PRIVATE_KEY_PRODUCTION: ${{ secrets.DOTENV_PRIVATE_KEY_PRODUCTION }}
       APP_URL: ${{ vars.APP_URL }}
-      HEALTH_PATH: ${{ inputs.health-path }}
+      HEALTH_PATH: ${{ inputs.health_path }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -272,8 +272,8 @@ jobs:
       - name: Build and push (multi-arch, sha + latest)
         uses: docker/build-push-action@v6
         with:
-          context: ${{ inputs.working-directory }}
-          file: ${{ inputs.working-directory }}/${{ inputs.dockerfile }}
+          context: ${{ inputs.working_directory }}
+          file: ${{ inputs.working_directory }}/${{ inputs.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
@@ -309,7 +309,7 @@ jobs:
             echo "attempt $i: $BODY"
             STATUS=$(printf '%s' "$BODY" | jq -r '.status // empty' 2>/dev/null || true)
             VERSION=$(printf '%s' "$BODY" | jq -r '.version // empty' 2>/dev/null || true)
-            if [ "$STATUS" = "${{ inputs.health-status }}" ] && [ "$VERSION" = "${{ github.sha }}" ]; then
+            if [ "$STATUS" = "${{ inputs.health_status }}" ] && [ "$VERSION" = "${{ github.sha }}" ]; then
               echo "Deployment ${{ github.sha }} is healthy."
               exit 0
             fi
@@ -326,7 +326,7 @@ jobs:
     needs: [deploy-vercel, deploy-worker, deploy-container]
     env:
       APP_URL: ${{ vars.APP_URL }}
-      HEALTH_PATH: ${{ inputs.health-path }}
+      HEALTH_PATH: ${{ inputs.health_path }}
     steps:
       - name: Confirm a deploy job succeeded
         run: |
