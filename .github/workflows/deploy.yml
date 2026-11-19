@@ -90,10 +90,6 @@ on:
       VERCEL_TOKEN:
         required: false
 
-concurrency:
-  group: deploy-${{ inputs.app }}-${{ github.ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
   packages: write
