@@ -90,11 +90,6 @@ on:
       VERCEL_TOKEN:
         required: false
 
-permissions:
-  contents: read
-  packages: write
-  id-token: write
-
 jobs:
   # ---------------------------------------------------------------- verify
   verify:
