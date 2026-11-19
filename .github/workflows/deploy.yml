@@ -106,7 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working_directory: ${{ inputs.working_directory }}
+        working-directory: ${{ inputs.working_directory }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -164,7 +164,7 @@ jobs:
           echo "value=$REF" >> "$GITHUB_OUTPUT"
       - name: Detect migrations
         id: detect
-        working_directory: ${{ inputs.working_directory }}
+        working-directory: ${{ inputs.working_directory }}
         run: |
           if [ -d supabase/migrations ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
@@ -174,7 +174,7 @@ jobs:
           fi
       - name: Push migrations via pooler
         if: steps.detect.outputs.present == 'true'
-        working_directory: ${{ inputs.working_directory }}
+        working-directory: ${{ inputs.working_directory }}
         run: |
           set -euo pipefail
           : "${SUPABASE_DB_PASSWORD:?SUPABASE_DB_PASSWORD is required}"
@@ -193,7 +193,7 @@ jobs:
     needs: [verify]
     defaults:
       run:
-        working_directory: ${{ inputs.working_directory }}
+        working-directory: ${{ inputs.working_directory }}
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
@@ -249,7 +249,7 @@ jobs:
     needs: [verify, migrate-supabase]
     defaults:
       run:
-        working_directory: ${{ inputs.working_directory }}
+        working-directory: ${{ inputs.working_directory }}
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name != '' && inputs.image_name || inputs.app }}
       COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
