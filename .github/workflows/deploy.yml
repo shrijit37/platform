@@ -140,8 +140,8 @@ jobs:
             echo "No lint target found; skipping lint."
           fi
 
-  # -------------------------------------------------------- migrate-supabase
-  migrate-supabase:
+  # -------------------------------------------------------- migrate_supabase
+  migrate_supabase:
     name: Migrate Supabase
     # Runs before every non-frontend deploy so schema changes land first.
     # Repos with no supabase/migrations/ directory exit cleanly as a no-op.
@@ -185,8 +185,8 @@ jobs:
           DB_URL="postgresql://postgres.${REF}:${SUPABASE_DB_PASSWORD}@aws-0-ap-south-1.pooler.supabase.com:6543/postgres"
           supabase db push --remote "$DB_URL" --include-all --yes
 
-  # ----------------------------------------------------------- deploy-vercel
-  deploy-vercel:
+  # ----------------------------------------------------------- deploy_vercel
+  deploy_vercel:
     name: Deploy to Vercel
     if: ${{ inputs.kind == 'vercel' }}
     runs-on: ubuntu-latest
@@ -222,15 +222,15 @@ jobs:
           fi
           echo "This step is informational and will not fail the run."
 
-  # ----------------------------------------------------------- deploy-worker
-  deploy-worker:
+  # ----------------------------------------------------------- deploy_worker
+  deploy_worker:
     name: Deploy Cloudflare Worker
-    # always() keeps this job from being skipped when migrate-supabase is
+    # always() keeps this job from being skipped when migrate_supabase is
     # skipped (migrations only run for kind: supabase), while the result checks
     # preserve the "verify must pass / migrations must finish first" gate.
-    if: ${{ always() && inputs.kind == 'worker' && needs.verify.result == 'success' && (needs.migrate-supabase.result == 'success' || needs.migrate-supabase.result == 'skipped') }}
+    if: ${{ always() && inputs.kind == 'worker' && needs.verify.result == 'success' && (needs.migrate_supabase.result == 'success' || needs.migrate_supabase.result == 'skipped') }}
     runs-on: ubuntu-latest
-    needs: [verify, migrate-supabase]
+    needs: [verify, migrate_supabase]
     steps:
       - uses: actions/checkout@v4
       - name: Deploy with wrangler
@@ -241,12 +241,12 @@ jobs:
           workingDirectory: ${{ inputs.working_directory }}
           command: deploy${{ inputs.cf_worker_name != '' && format(' --name {0}', inputs.cf_worker_name) || '' }}
 
-  # -------------------------------------------------------- deploy-container
-  deploy-container:
+  # -------------------------------------------------------- deploy_container
+  deploy_container:
     name: Build and deploy container
-    if: ${{ always() && inputs.kind == 'container' && needs.verify.result == 'success' && (needs.migrate-supabase.result == 'success' || needs.migrate-supabase.result == 'skipped') }}
+    if: ${{ always() && inputs.kind == 'container' && needs.verify.result == 'success' && (needs.migrate_supabase.result == 'success' || needs.migrate_supabase.result == 'skipped') }}
     runs-on: ubuntu-latest
-    needs: [verify, migrate-supabase]
+    needs: [verify, migrate_supabase]
     defaults:
       run:
         working-directory: ${{ inputs.working_directory }}
@@ -323,16 +323,16 @@ jobs:
     name: Health gate
     if: ${{ always() && contains(fromJSON('["vercel","worker","container"]'), inputs.kind) }}
     runs-on: ubuntu-latest
-    needs: [deploy-vercel, deploy-worker, deploy-container]
+    needs: [deploy_vercel, deploy_worker, deploy_container]
     env:
       APP_URL: ${{ vars.APP_URL }}
       HEALTH_PATH: ${{ inputs.health_path }}
     steps:
       - name: Confirm a deploy job succeeded
         run: |
-          if [ "${{ needs.deploy-vercel.result }}" = "success" ] || \
-             [ "${{ needs.deploy-worker.result }}" = "success" ] || \
-             [ "${{ needs.deploy-container.result }}" = "success" ]; then
+          if [ "${{ needs.deploy_vercel.result }}" = "success" ] || \
+             [ "${{ needs.deploy_worker.result }}" = "success" ] || \
+             [ "${{ needs.deploy_container.result }}" = "success" ]; then
             echo "Deploy job succeeded."
           else
             echo "No deploy job succeeded." >&2
