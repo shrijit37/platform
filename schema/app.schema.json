@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/platform/schema/app.schema.json",
+  "title": "Platform app manifest",
+  "description": "Schema for one entry in config/apps.yaml. Validate each list item against this.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "kind", "repo"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Logical app name; becomes the workflow `app` input / GHCR image name."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["vercel", "worker", "container", "supabase"],
+      "description": "Deployment target."
+    },
+    "repo": {
+      "type": "string",
+      "description": "GitHub repo name under the org."
+    },
+    "workingDirectory": {
+      "type": "string",
+      "default": ".",
+      "description": "Subdirectory to build/test/deploy from."
+    },
+    "buildCommand": {
+      "type": "string",
+      "default": "",
+      "description": "Optional explicit build command."
+    },
+    "testCommand": {
+      "type": "string",
+      "default": "make test"
+    },
+    "healthPath": {
+      "type": "string",
+      "default": "/health"
+    },
+    "vercelProject": {
+      "type": "string",
+      "default": ""
+    },
+    "cfWorkerName": {
+      "type": "string",
+      "default": ""
+    },
+    "dockerfile": {
+      "type": "string",
+      "default": "Dockerfile"
+    },
+    "coolifyApp": {
+      "type": "string",
+      "default": ""
+    },
+    "domain": {
+      "type": "string",
+      "description": "Public URL; set as vars.APP_URL on the repo for the health gate."
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "default": {},
+      "description": "Non-secret build/runtime env, key -> value."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["candidate", "active", "retired"],
+      "default": "candidate",
+      "description": "candidate = inventoried but not yet migrated."
+    }
+  }
+}

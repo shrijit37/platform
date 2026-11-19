@@ -1,0 +1,5 @@
+project_id = "sonhltqafwgxuntydysv"
+
+[auth.third_party.clerk]
+enabled = true
+domain = "careful-goblin-2052.clerk.accounts.dev"

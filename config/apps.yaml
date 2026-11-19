@@ -1,0 +1,95 @@
+# Starter inventory. Every entry is `candidate` until its migration is done.
+# Validate each item with schema/app.schema.json.
+apps:
+  # ------------------------------------------------------------- frontends
+  - name: CoinTrack
+    kind: vercel
+    repo: CoinTrack
+    status: candidate
+
+  - name: portfolio-v1.1
+    kind: vercel
+    repo: portfolio-v1.1
+    status: candidate
+
+  - name: Rehearse.io
+    kind: vercel
+    repo: Rehearse.io
+    status: candidate
+
+  - name: dayboard
+    kind: vercel
+    repo: dayboard
+    status: candidate
+
+  - name: vidyaai
+    kind: vercel
+    repo: vidyaai
+    status: candidate
+
+  - name: opentv
+    kind: vercel
+    repo: opentv
+    status: candidate
+
+  - name: project-eryx
+    kind: vercel
+    repo: project-eryx
+    workingDirectory: apps/web
+    status: candidate
+
+  # -------------------------------------------------------------- backends
+  - name: LLMBridge
+    kind: container
+    repo: LLMBridge
+    status: candidate
+
+  - name: cinepro-core
+    kind: container
+    repo: cinepro-core
+    status: candidate
+
+  - name: prvl-bill-generator
+    kind: container
+    repo: prvl-bill-generator
+    status: candidate
+
+  - name: Tdrive-Zero-knowledge
+    kind: container
+    repo: Tdrive-Zero-knowledge
+    status: candidate
+
+  - name: auth-service
+    kind: container
+    repo: auth-service
+    status: candidate
+
+  - name: pstream
+    kind: container
+    repo: pstream
+    dockerfile: Dockerfile.streaming
+    status: candidate
+
+  - name: meshcode
+    kind: container
+    repo: meshcode
+    status: candidate
+
+  # --------------------------------------------------------------- workers
+  # Multiple wrangler workers live under services/*; split into one entry per
+  # worker when migrating (services/www is listed here as the first one).
+  - name: opencode-ua-test-worker
+    kind: worker
+    repo: opencode-ua-test
+    workingDirectory: services/www
+    status: candidate
+
+  # -------------------------------------------------------------- database
+  # Migrations currently live inside each app repo's supabase/migrations/.
+  # A central `platform` entry allows a one-shot "push all schemas" workflow;
+  # app repos run their own migrations via the reusable deploy workflow.
+  - name: supabase-migrations
+    kind: supabase
+    repo: platform
+    testCommand: "true"
+    status: candidate

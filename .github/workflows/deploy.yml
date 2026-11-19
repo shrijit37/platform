@@ -1,0 +1,335 @@
+name: Reusable deploy
+
+# Central CI/CD entrypoint. App repos call this with `uses:` — no copies of
+# deployment logic live in the app repos.
+on:
+  workflow_call:
+    inputs:
+      kind:
+        description: "Deployment kind: vercel | worker | container | supabase"
+        required: true
+        type: string
+      app:
+        description: "Logical app name (used for GHCR image + concurrency group)"
+        required: true
+        type: string
+      working-directory:
+        description: "Directory to install/test/build from"
+        required: false
+        type: string
+        default: "."
+      build-command:
+        description: "Optional explicit build command (verify job only)"
+        required: false
+        type: string
+        default: ""
+      test-command:
+        description: "Command that runs the test suite"
+        required: false
+        type: string
+        default: "make test"
+      health-path:
+        description: "Path appended to vars.APP_URL for health probes"
+        required: false
+        type: string
+        default: "/health"
+      vercel-project:
+        description: "Vercel project name (only used when VERCEL_TOKEN is set)"
+        required: false
+        type: string
+        default: ""
+      cf-worker-name:
+        description: "Cloudflare Worker name (overrides wrangler config)"
+        required: false
+        type: string
+        default: ""
+      dockerfile:
+        description: "Dockerfile path, relative to working-directory"
+        required: false
+        type: string
+        default: "Dockerfile"
+      coolify-app:
+        description: "Coolify app uuid/name to trigger via webhook"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      SUPABASE_ACCESS_TOKEN:
+        required: false
+      SUPABASE_PROJECT_REF:
+        required: false
+      SUPABASE_DB_PASSWORD:
+        description: "Direct DB password for supabase link / db push"
+        required: false
+      CLERK_SECRET_KEY:
+        required: false
+      CLERK_PUBLISHABLE_KEY:
+        required: false
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
+      COOLIFY_WEBHOOK:
+        required: false
+      COOLIFY_TOKEN:
+        required: false
+      DOTENV_PRIVATE_KEY_PRODUCTION:
+        required: false
+      # Optional extras used by the jobs below. Native Vercel Git integration
+      # is the default, so VERCEL_TOKEN is deliberately not required.
+      VERCEL_TOKEN:
+        required: false
+
+concurrency:
+  group: deploy-${{ inputs.app }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  # ---------------------------------------------------------------- verify
+  verify:
+    name: Verify (blocking)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: |
+          if [ -f bun.lockb ] || [ -f bun.lock ]; then
+            npm i -g bun && bun install --frozen-lockfile
+          elif [ -f pnpm-lock.yaml ]; then
+            corepack enable && pnpm install --frozen-lockfile
+          elif [ -f yarn.lock ]; then
+            yarn install --frozen-lockfile
+          elif [ -f package-lock.json ] || [ -f package.json ]; then
+            npm ci || npm install
+          else
+            echo "No JS lockfile found; skipping dependency install."
+          fi
+      - name: Build (when requested)
+        if: inputs.build-command != ''
+        run: ${{ inputs.build-command }}
+      - name: Test
+        run: ${{ inputs.test-command }}
+      - name: Lint
+        run: |
+          if [ -f package.json ] && node -e 'process.exit(require("./package.json").scripts?.lint ? 0 : 1)' 2>/dev/null; then
+            npm run lint
+          elif [ -f Makefile ] && grep -q '^lint:' Makefile; then
+            make lint
+          else
+            echo "No lint target found; skipping lint."
+          fi
+
+  # -------------------------------------------------------- migrate-supabase
+  migrate-supabase:
+    name: Migrate Supabase
+    # Runs before every non-frontend deploy so schema changes land first.
+    # Repos with no supabase/migrations/ directory exit cleanly as a no-op.
+    if: ${{ inputs.kind == 'container' || inputs.kind == 'worker' || inputs.kind == 'supabase' }}
+    runs-on: ubuntu-latest
+    needs: [verify]
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Resolve project ref
+        id: ref
+        run: |
+          REF="${{ secrets.SUPABASE_PROJECT_REF }}"
+          [ -n "$REF" ] || REF="sonhltqafwgxuntydysv"
+          echo "value=$REF" >> "$GITHUB_OUTPUT"
+      - name: Detect migrations
+        id: detect
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          if [ -d supabase/migrations ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "No supabase/migrations directory; skipping migration."
+          fi
+      - name: Push migrations via pooler
+        if: steps.detect.outputs.present == 'true'
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          set -euo pipefail
+          : "${SUPABASE_DB_PASSWORD:?SUPABASE_DB_PASSWORD is required}"
+          # Direct db.<ref>.supabase.co:5432 is unreachable from GitHub-hosted
+          # runners; the Supavisor pooler works with the DB password alone, so
+          # no SUPABASE_ACCESS_TOKEN is needed in CI.
+          REF="${{ steps.ref.outputs.value }}"
+          DB_URL="postgresql://postgres.${REF}:${SUPABASE_DB_PASSWORD}@aws-0-ap-south-1.pooler.supabase.com:6543/postgres"
+          supabase db push --remote "$DB_URL" --include-all --yes
+
+  # ----------------------------------------------------------- deploy-vercel
+  deploy-vercel:
+    name: Deploy to Vercel
+    if: ${{ inputs.kind == 'vercel' }}
+    runs-on: ubuntu-latest
+    needs: [verify]
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+      CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy with Vercel CLI (token present)
+        if: env.VERCEL_TOKEN != ''
+        run: |
+          npm i -g vercel@latest
+          PROJECT_ARG=""
+          if [ -n "${{ inputs.vercel-project }}" ]; then
+            PROJECT_ARG="--project=${{ inputs.vercel-project }}"
+          fi
+          vercel pull --yes --environment=production --token "$VERCEL_TOKEN" $PROJECT_ARG
+          vercel build --prod --token "$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --token "$VERCEL_TOKEN" $PROJECT_ARG
+      - name: Validate native Git integration (no token)
+        if: env.VERCEL_TOKEN == ''
+        run: |
+          echo "::notice title=Vercel::No VERCEL_TOKEN set; expecting Vercel native Git integration."
+          if [ -f vercel.json ] || [ -f .vercel/project.json ]; then
+            echo "Vercel project configuration detected. Native Git integration should handle this push."
+          else
+            echo "No vercel.json/.vercel/project.json found. Confirm the repo is connected under Vercel -> Project Settings -> Git."
+          fi
+          echo "This step is informational and will not fail the run."
+
+  # ----------------------------------------------------------- deploy-worker
+  deploy-worker:
+    name: Deploy Cloudflare Worker
+    # always() keeps this job from being skipped when migrate-supabase is
+    # skipped (migrations only run for kind: supabase), while the result checks
+    # preserve the "verify must pass / migrations must finish first" gate.
+    if: ${{ always() && inputs.kind == 'worker' && needs.verify.result == 'success' && (needs.migrate-supabase.result == 'success' || needs.migrate-supabase.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    needs: [verify, migrate-supabase]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy with wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: ${{ inputs.working-directory }}
+          command: deploy${{ inputs.cf-worker-name != '' && format(' --name {0}', inputs.cf-worker-name) || '' }}
+
+  # -------------------------------------------------------- deploy-container
+  deploy-container:
+    name: Build and deploy container
+    if: ${{ always() && inputs.kind == 'container' && needs.verify.result == 'success' && (needs.migrate-supabase.result == 'success' || needs.migrate-supabase.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    needs: [verify, migrate-supabase]
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/${{ inputs.app }}
+      COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
+      COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+      DOTENV_PRIVATE_KEY_PRODUCTION: ${{ secrets.DOTENV_PRIVATE_KEY_PRODUCTION }}
+      APP_URL: ${{ vars.APP_URL }}
+      HEALTH_PATH: ${{ inputs.health-path }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Decrypt dotenv (when key present)
+        if: env.DOTENV_PRIVATE_KEY_PRODUCTION != ''
+        run: npx --yes @dotenvx/dotenvx decrypt -f .env.production -o .env
+      - name: Build and push (multi-arch, sha + latest)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.working-directory }}
+          file: ${{ inputs.working-directory }}/${{ inputs.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Trivy scan (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: Trigger Coolify deploy
+        # Matches the proven auth-service workflow: the webhook URL itself
+        # identifies the app, and the Bearer token authorises the trigger.
+        # Sending a JSON body is not required and can confuse some webhook
+        # receivers, so none is sent.
+        run: |
+          set -euo pipefail
+          : "${COOLIFY_WEBHOOK:?COOLIFY_WEBHOOK is required}"
+          : "${COOLIFY_TOKEN:?COOLIFY_TOKEN is required}"
+          curl --fail --silent --show-error --request POST "$COOLIFY_WEBHOOK" \
+            --header "Authorization: Bearer $COOLIFY_TOKEN"
+      - name: Poll health endpoint for status + version
+        run: |
+          : "${APP_URL:?vars.APP_URL is required}"
+          URL="${APP_URL%/}${HEALTH_PATH}"
+          for i in $(seq 1 30); do
+            BODY=$(curl --silent --show-error --max-time 10 "$URL" || true)
+            echo "attempt $i: $BODY"
+            STATUS=$(printf '%s' "$BODY" | jq -r '.status // empty' 2>/dev/null || true)
+            VERSION=$(printf '%s' "$BODY" | jq -r '.version // empty' 2>/dev/null || true)
+            if [ "$STATUS" = "ok" ] && [ "$VERSION" = "${{ github.sha }}" ]; then
+              echo "Deployment ${{ github.sha }} is healthy."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Health never reported status=ok and version=${{ github.sha }} in time." >&2
+          exit 1
+
+  # ----------------------------------------------------------------- health
+  health:
+    name: Health gate
+    if: ${{ always() && contains(fromJSON('["vercel","worker","container"]'), inputs.kind) }}
+    runs-on: ubuntu-latest
+    needs: [deploy-vercel, deploy-worker, deploy-container]
+    env:
+      APP_URL: ${{ vars.APP_URL }}
+      HEALTH_PATH: ${{ inputs.health-path }}
+    steps:
+      - name: Confirm a deploy job succeeded
+        run: |
+          if [ "${{ needs.deploy-vercel.result }}" = "success" ] || \
+             [ "${{ needs.deploy-worker.result }}" = "success" ] || \
+             [ "${{ needs.deploy-container.result }}" = "success" ]; then
+            echo "Deploy job succeeded."
+          else
+            echo "No deploy job succeeded." >&2
+            exit 1
+          fi
+      - name: Probe APP_URL
+        run: |
+          : "${APP_URL:?vars.APP_URL is required}"
+          URL="${APP_URL%/}${HEALTH_PATH}"
+          curl --fail --silent --show-error --max-time 15 "$URL"

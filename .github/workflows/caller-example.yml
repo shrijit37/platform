@@ -1,0 +1,14 @@
+# Copy to <app-repo>/.github/workflows/deploy.yml (bootstrap script does this).
+name: Deploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    uses: shrijit37/platform/.github/workflows/deploy.yml@main
+    with:
+      kind: __APP_KIND__
+      app: __APP_NAME__
+    secrets: inherit

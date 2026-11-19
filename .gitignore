@@ -1,0 +1,17 @@
+# Local secrets — never commit
+secrets.env
+*.env
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Local tooling caches / generated config
+node_modules/
+.vercel/
+.wrangler/
+*.local
+
+# OS / editor noise
+.DS_Store
+*.swp
