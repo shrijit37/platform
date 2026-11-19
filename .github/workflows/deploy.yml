@@ -58,7 +58,7 @@ on:
         required: false
         type: string
         default: "Dockerfile"
-      coolify-app:
+      coolify_app:
         description: "Coolify app uuid/name to trigger via webhook"
         required: false
         type: string
