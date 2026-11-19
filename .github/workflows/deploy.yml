@@ -18,7 +18,7 @@ on:
         required: false
         type: string
         default: ""
-      working-directory:
+      working_directory:
         description: "Directory to install/test/build from"
         required: false
         type: string
