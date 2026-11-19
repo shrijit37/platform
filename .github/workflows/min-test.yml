@@ -1,0 +1,12 @@
+name: Min reusable
+on:
+  workflow_call:
+    inputs:
+      app:
+        required: true
+        type: string
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "hello ${{ inputs.app }}"

@@ -1,0 +1,7 @@
+name: Caller test
+on: workflow_dispatch
+jobs:
+  call:
+    uses: shrijit37/platform/.github/workflows/min-test.yml@main
+    with:
+      app: test
